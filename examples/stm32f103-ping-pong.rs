@@ -107,14 +107,13 @@ fn main() -> ! {
     lora_dio1.enable_interrupt(&exti);
     // Wrap DIO1 pin in Dio1PinRefMut newtype, as mutable refences to
     // pins do not implement the `embedded_hal::digital::v2::InputPin` trait.
-    let lora_dio1 = Dio1PinRefMut(lora_dio1);
+    let mut lora_dio1 = Dio1PinRefMut(lora_dio1);
 
     let lora_pins = (
         lora_nss,    // D7
         lora_nreset, // A0
         lora_busy,   // D4
         lora_ant,    // D8
-        lora_dio1,   // D6
     );
 
     // Initialize a busy-waiting delay based on the system clock
@@ -174,6 +173,7 @@ fn main() -> ! {
                         tx_timeout,
                         8,
                         crc_type,
+                        &mut lora_dio1,
                     )
                     .unwrap();
                     led_pin.set_low().unwrap();
