@@ -15,7 +15,7 @@ use slave_select::*;
 
 use self::err::{PinError, SxError};
 
-type Pins<TNSS, TNRST, TBUSY, TANT, TDIO1> = (TNSS, TNRST, TBUSY, TANT, TDIO1);
+type Pins<TNSS, TNRST, TBUSY, TANT> = (TNSS, TNRST, TBUSY, TANT);
 
 const NOP: u8 = 0x00;
 
@@ -31,17 +31,15 @@ pub fn calc_rf_freq(rf_frequency: f32, f_xtal: f32) -> u32 {
 }
 
 /// Wrapper around a Semtech SX1261/62 LoRa modem
-pub struct SX126x<TSPI, TNSS: OutputPin, TNRST, TBUSY, TANT, TDIO1> {
+pub struct SX126x<TSPI, TNSS: OutputPin, TNRST, TBUSY, TANT> {
     spi: PhantomData<TSPI>,
     slave_select: SlaveSelect<TNSS>,
     nrst_pin: TNRST,
     busy_pin: TBUSY,
     ant_pin: TANT,
-    dio1_pin: TDIO1,
 }
 
-impl<TSPI, TNSS, TNRST, TBUSY, TANT, TDIO1, TSPIERR, TPINERR>
-    SX126x<TSPI, TNSS, TNRST, TBUSY, TANT, TDIO1>
+impl<TSPI, TNSS, TNRST, TBUSY, TANT, TSPIERR, TPINERR> SX126x<TSPI, TNSS, TNRST, TBUSY, TANT>
 where
     TPINERR: core::fmt::Debug,
     TSPI: Write<u8, Error = TSPIERR> + Transfer<u8, Error = TSPIERR>,
@@ -49,18 +47,16 @@ where
     TNRST: OutputPin<Error = TPINERR>,
     TBUSY: InputPin<Error = TPINERR>,
     TANT: OutputPin<Error = TPINERR>,
-    TDIO1: InputPin<Error = TPINERR>,
 {
     // Create a new SX126x
-    pub fn new(pins: Pins<TNSS, TNRST, TBUSY, TANT, TDIO1>) -> Self {
-        let (nss_pin, nrst_pin, busy_pin, ant_pin, dio1_pin) = pins;
+    pub fn new(pins: Pins<TNSS, TNRST, TBUSY, TANT>) -> Self {
+        let (nss_pin, nrst_pin, busy_pin, ant_pin) = pins;
         Self {
             spi: PhantomData,
             slave_select: SlaveSelect::new(nss_pin),
             nrst_pin,
             busy_pin,
             ant_pin,
-            dio1_pin,
         }
     }
 
@@ -506,7 +502,7 @@ where
     /// puts the device in TX mode, and waits until the devices
     /// is done sending the data or a timeout occurs.
     /// Please note that this method updates the packet params
-    pub fn write_bytes<'spi, 'data>(
+    pub fn write_bytes<'spi, 'data, TDIO1: InputPin<Error = TPINERR>>(
         &mut self,
         spi: &'spi mut TSPI,
         delay: &mut impl DelayUs<u32>,
@@ -514,6 +510,7 @@ where
         timeout: RxTxTimeout,
         preamble_len: u16,
         crc_type: packet::lora::LoRaCrcType,
+        dio1_pin: &mut TDIO1,
     ) -> Result<Status, SxError<TSPIERR, TPINERR>> {
         use packet::lora::LoRaPacketParams;
         // Write data to buffer
@@ -533,7 +530,7 @@ where
         // Wait for busy line to go low
         self.wait_on_busy(delay)?;
         // Wait on dio1 going high
-        self.wait_on_dio1()?;
+        self.wait_on_dio1(dio1_pin)?;
         // Clear IRQ
         self.clear_irq_status(spi, delay, IrqMask::all())?;
         // Write completed!
@@ -566,8 +563,11 @@ where
     }
 
     /// Busily wait for the dio1 pin to go high
-    fn wait_on_dio1(&mut self)-> Result<(), PinError<TPINERR>> {
-        while let Ok(true) = self.dio1_pin.is_low() {
+    fn wait_on_dio1<TDIO1: InputPin<Error = TPINERR>>(
+        &mut self,
+        dio1_pin: &mut TDIO1,
+    ) -> Result<(), PinError<TPINERR>> {
+        while let Ok(true) = dio1_pin.is_low() {
             cortex_m::asm::nop();
         }
         Ok(())
